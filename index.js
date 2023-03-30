@@ -1,9 +1,11 @@
 require("dotenv").config();
 const express = require("express");
 const { Configuration, OpenAIApi } = require("openai");
+const cors = require("cors");
 
 const app = express();
 app.use(express.json());
+app.use(cors()); // Add this line to enable CORS for all routes
 
 const configuration = new Configuration({
   apiKey: process.env.OPENAI_API_KEY,
