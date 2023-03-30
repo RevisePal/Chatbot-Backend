@@ -5,7 +5,7 @@ const cors = require("cors");
 
 const app = express();
 app.use(express.json());
-app.use(cors()); // Add this line to enable CORS for all routes
+app.use(cors()); // Add this line to enable CORS for all route
 
 const configuration = new Configuration({
   apiKey: process.env.OPENAI_API_KEY,
