@@ -2,6 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const { Configuration, OpenAIApi } = require("openai");
 const cors = require("cors");
+const badWords = require("bad-words");
 
 const app = express();
 app.use(express.json());
@@ -11,6 +12,7 @@ const configuration = new Configuration({
   apiKey: process.env.OPENAI_API_KEY,
 });
 const openai = new OpenAIApi(configuration);
+const filter = new badWords();
 
 const port = process.env.PORT || 5000;
 
@@ -29,10 +31,11 @@ app.post("/ask", async (req, res) => {
     });
 
     const completion = response.data.choices[0].text;
+    const filteredCompletion = filter.clean(completion);
 
     return res.status(200).json({
       success: true,
-      message: completion,
+      message: filteredCompletion,
     });
   } catch (error) {
     console.log(error.message);
