@@ -129,4 +129,103 @@ app.all("/sections", async (req, res) => {
   }
 });
 
+app.post("/announcements", async (req, res) => {
+  // Extract the announcement details and credentials from the request body
+  const { courseId, title, message, apiKey } = req.body;
+
+  // Check if all required parameters are provided
+  if (!courseId || !title || !message || !apiKey) {
+    return res.status(400).json({ error: 'Missing required parameters' });
+  }
+
+  // Construct the API URL for Canvas using the provided courseId
+  const canvasUrl = `https://canvas.instructure.com/api/v1/courses/${courseId}/discussion_topics`;
+
+  try {
+    const canvasResponse = await fetch(canvasUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        title: title,
+        message: message,
+        is_announcement: true,
+      }),
+    });
+
+    if (!canvasResponse.ok) {
+      // If the Canvas API request fails, capture the response for debugging
+      const errorResponse = await canvasResponse.text();
+      throw new Error(`Canvas API request failed: ${errorResponse}`);
+    }
+
+    // Respond to the client that the announcement was successful
+    res.status(200).json({ message: 'Announcement created' });
+  } catch (error) {
+    console.error('Error creating announcement:', error);
+    res.status(500).json({
+      error: 'Failed to create announcement',
+      details: error.message,
+    });
+  }
+});
+
+app.all("/students", async (req, res) => {
+  // Expect the API key and course ID to be provided in the request body or query parameters
+  const { apiKey, courseId, sectionName } =
+    req.method === 'POST' ? req.body : req.query;
+
+  // Validate the input
+  if (!apiKey || !courseId || !sectionName) {
+    return res.status(400).json({ error: 'Missing required parameters' });
+  }
+
+  const canvasDomain = 'https://canvas.instructure.com';
+
+  try {
+    // Get all sections in the course
+    const sectionsUrl = `${canvasDomain}/api/v1/courses/${courseId}/sections`;
+    const sectionsResponse = await fetch(sectionsUrl, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+
+    if (!sectionsResponse.ok) {
+      throw new Error('Failed to fetch sections');
+    }
+
+    const sections = await sectionsResponse.json();
+    // Find the section that matches the sectionName
+    const section = sections.find((s) => s.name === sectionName);
+
+    if (!section) {
+      return res.status(404).json({ error: 'Section not found' });
+    }
+
+    // Get the students in that section
+    const studentsUrl = `${canvasDomain}/api/v1/sections/${section.id}/enrollments?enrollment_type=student&per_page=100`;
+    const studentsResponse = await fetch(studentsUrl, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+
+    if (!studentsResponse.ok) {
+      throw new Error('Failed to fetch students for the section');
+    }
+
+    const students = await studentsResponse.json();
+    // Filter out users who are not students (if necessary)
+    const studentEnrollments = students.filter(
+      (enrollment) => enrollment.type === 'StudentEnrollment'
+    );
+
+    res.status(200).json(studentEnrollments);
+  } catch (error) {
+    console.error('Error fetching students:', error);
+    res
+      .status(500)
+      .json({ error: 'Failed to fetch students', details: error.message });
+  }
+});
+
 app.listen(port, () => console.log(`Server is running on port ${port}!!`));
