@@ -1,4 +1,5 @@
 require("dotenv").config();
+import fetch from 'node-fetch';
 const express = require("express");
 const { Configuration, OpenAIApi } = require("openai");
 const cors = require("cors");
