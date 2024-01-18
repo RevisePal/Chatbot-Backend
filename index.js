@@ -4,7 +4,7 @@ const express = require("express");
 const { Configuration, OpenAIApi } = require("openai");
 const cors = require("cors");
 const badWords = require("bad-words");
-const fetch = require('node-fetch');
+// const fetch = require('node-fetch');
 
 const app = express();
 app.use(express.json());
