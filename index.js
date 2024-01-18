@@ -96,4 +96,37 @@ app.post("/canvasProxy", async (req, res) => {
   }
 });
 
+app.all("/sections", async (req, res) => {
+  // Expect the API key and course ID to be provided in the request body or query parameters
+  const { apiKey, classCode } = req.method === 'POST' ? req.body : req.query;
+
+  // Validate the input
+  if (!apiKey || !classCode) {
+    return res.status(400).json({ error: 'Missing required parameters' });
+  }
+
+  const canvasDomain = 'https://canvas.instructure.com';
+  const url = `${canvasDomain}/api/v1/courses/${classCode}/sections`;
+
+  try {
+    const canvasResponse = await fetch(url, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+
+    if (!canvasResponse.ok) {
+      // If the Canvas API request fails, capture the response for debugging
+      const errorResponse = await canvasResponse.text();
+      throw new Error(`Canvas API request failed: ${errorResponse}`);
+    }
+
+    const sections = await canvasResponse.json();
+    res.status(200).json(sections);
+  } catch (error) {
+    console.error('Error fetching sections:', error);
+    res
+      .status(500)
+      .json({ error: 'Failed to fetch sections', details: error.message });
+  }
+});
+
 app.listen(port, () => console.log(`Server is running on port ${port}!!`));
