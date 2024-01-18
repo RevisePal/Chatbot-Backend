@@ -1,22 +1,23 @@
-require("dotenv").config();
+import dotenv from 'dotenv';
+dotenv.config();
+import express from 'express';
+import { Configuration, OpenAIApi } from 'openai';
+import cors from 'cors';
+import BadWords from 'bad-words';
 import fetch from 'node-fetch';
-const express = require("express");
-const { Configuration, OpenAIApi } = require("openai");
-const cors = require("cors");
-const badWords = require("bad-words");
-// const fetch = require('node-fetch');
 
 const app = express();
 app.use(express.json());
-app.use(cors()); // Add this line to enable CORS for all route
+app.use(cors());
 
 const configuration = new Configuration({
   apiKey: process.env.OPENAI_API_KEY,
 });
 const openai = new OpenAIApi(configuration);
-const filter = new badWords();
+const filter = new BadWords();
 
 const port = process.env.PORT || 5000;
+
 
 app.post("/ask", async (req, res) => {
   const prompt = req.body.prompt;
