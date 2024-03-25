@@ -1,47 +1,61 @@
-import dotenv from 'dotenv';
+import dotenv from "dotenv";
 dotenv.config();
-import express from 'express';
-import { Configuration, OpenAIApi } from 'openai';
-import cors from 'cors';
-import BadWords from 'bad-words';
-import fetch from 'node-fetch';
+import express from "express";
+import OpenAI from "openai";
+import cors from "cors";
+import BadWords from "bad-words";
+import fetch from "node-fetch";
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 
-const configuration = new Configuration({
-  apiKey: process.env.OPENAI_API_KEY,
+const openai = new OpenAI({
+  apiKey: process.env["OPENAI_API_KEY"],
 });
-const openai = new OpenAIApi(configuration);
 const filter = new BadWords();
 
 const port = process.env.PORT || 5000;
 
+app.get("/test", (req, res) => res.send("OK"));
 
 app.post("/ask", async (req, res) => {
-  const prompt = req.body.prompt;
-
+  console.log("Received request body:", req.body);
+  const conversations = req.body.conversations;
   try {
-    if (prompt == null) {
-      throw new Error("Uh oh, no prompt was provided");
+    if (!conversations || conversations.length === 0) {
+      throw new Error("No conversation history was provided");
+    }
+    const response = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: conversations,
+    });
+    console.log("OpenAI API response:", response);
+
+    if (response.data) {
+      console.log("OpenAI API response data:", response.data);
+    } else {
+      console.log("OpenAI API response did not contain data.");
     }
 
-    const response = await openai.createCompletion({
-      model: "text-davinci-003",
-      prompt,
-      max_tokens: 500,
-    });
-
-    const completion = response.data.choices[0].text;
+    const completion = response.choices[0].message.content;
     const filteredCompletion = filter.clean(completion);
-
     return res.status(200).json({
       success: true,
       message: filteredCompletion,
     });
   } catch (error) {
-    console.log(error.message);
+    console.error("Error in /ask route:", error.message);
+    if (error.response) {
+      console.error("OpenAI API error response:", error.response);
+    }
+    if (error.stack) {
+      console.error("Error stack:", error.stack);
+    }
+    return res.status(500).json({
+      success: false,
+      message: "An error occurred while processing your request.",
+    });
   }
 });
 
@@ -53,13 +67,12 @@ app.post("/checkAnswer", async (req, res) => {
       throw new Error("Uh oh, no prompt was provided");
     }
 
-    const response = await openai.createCompletion({
-      model: "text-davinci-003",
-      prompt,
-      max_tokens: 500,
+    const response = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: conversations,
     });
 
-    const completion = response.data.choices[0].text;
+    const completion = response.choices[0].message.content;
     const filteredCompletion = filter.clean(completion);
 
     return res.status(200).json({
@@ -85,27 +98,27 @@ app.post("/canvasProxy", async (req, res) => {
     const data = await canvasResponse.json();
 
     if (!canvasResponse.ok) {
-      console.error('Canvas API response not OK:', data);
+      console.error("Canvas API response not OK:", data);
       return res.status(canvasResponse.status).send(data);
     }
 
     res.status(200).json(data);
   } catch (error) {
-    console.error('Error in canvasProxy:', error);
+    console.error("Error in canvasProxy:", error);
     res.status(500).json({ error: error.message, stack: error.stack });
   }
 });
 
 app.all("/sections", async (req, res) => {
   // Expect the API key and course ID to be provided in the request body or query parameters
-  const { apiKey, classCode } = req.method === 'POST' ? req.body : req.query;
+  const { apiKey, classCode } = req.method === "POST" ? req.body : req.query;
 
   // Validate the input
   if (!apiKey || !classCode) {
-    return res.status(400).json({ error: 'Missing required parameters' });
+    return res.status(400).json({ error: "Missing required parameters" });
   }
 
-  const canvasDomain = 'https://canvas.instructure.com';
+  const canvasDomain = "https://canvas.instructure.com";
   const url = `${canvasDomain}/api/v1/courses/${classCode}/sections`;
 
   try {
@@ -122,10 +135,10 @@ app.all("/sections", async (req, res) => {
     const sections = await canvasResponse.json();
     res.status(200).json(sections);
   } catch (error) {
-    console.error('Error fetching sections:', error);
+    console.error("Error fetching sections:", error);
     res
       .status(500)
-      .json({ error: 'Failed to fetch sections', details: error.message });
+      .json({ error: "Failed to fetch sections", details: error.message });
   }
 });
 
@@ -135,7 +148,7 @@ app.post("/announcements", async (req, res) => {
 
   // Check if all required parameters are provided
   if (!courseId || !title || !message || !apiKey) {
-    return res.status(400).json({ error: 'Missing required parameters' });
+    return res.status(400).json({ error: "Missing required parameters" });
   }
 
   // Construct the API URL for Canvas using the provided courseId
@@ -143,10 +156,10 @@ app.post("/announcements", async (req, res) => {
 
   try {
     const canvasResponse = await fetch(canvasUrl, {
-      method: 'POST',
+      method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
         title: title,
@@ -162,11 +175,11 @@ app.post("/announcements", async (req, res) => {
     }
 
     // Respond to the client that the announcement was successful
-    res.status(200).json({ message: 'Announcement created' });
+    res.status(200).json({ message: "Announcement created" });
   } catch (error) {
-    console.error('Error creating announcement:', error);
+    console.error("Error creating announcement:", error);
     res.status(500).json({
-      error: 'Failed to create announcement',
+      error: "Failed to create announcement",
       details: error.message,
     });
   }
@@ -175,14 +188,14 @@ app.post("/announcements", async (req, res) => {
 app.all("/students", async (req, res) => {
   // Expect the API key and course ID to be provided in the request body or query parameters
   const { apiKey, courseId, sectionName } =
-    req.method === 'POST' ? req.body : req.query;
+    req.method === "POST" ? req.body : req.query;
 
   // Validate the input
   if (!apiKey || !courseId || !sectionName) {
-    return res.status(400).json({ error: 'Missing required parameters' });
+    return res.status(400).json({ error: "Missing required parameters" });
   }
 
-  const canvasDomain = 'https://canvas.instructure.com';
+  const canvasDomain = "https://canvas.instructure.com";
 
   try {
     // Get all sections in the course
@@ -192,7 +205,7 @@ app.all("/students", async (req, res) => {
     });
 
     if (!sectionsResponse.ok) {
-      throw new Error('Failed to fetch sections');
+      throw new Error("Failed to fetch sections");
     }
 
     const sections = await sectionsResponse.json();
@@ -200,7 +213,7 @@ app.all("/students", async (req, res) => {
     const section = sections.find((s) => s.name === sectionName);
 
     if (!section) {
-      return res.status(404).json({ error: 'Section not found' });
+      return res.status(404).json({ error: "Section not found" });
     }
 
     // Get the students in that section
@@ -210,21 +223,21 @@ app.all("/students", async (req, res) => {
     });
 
     if (!studentsResponse.ok) {
-      throw new Error('Failed to fetch students for the section');
+      throw new Error("Failed to fetch students for the section");
     }
 
     const students = await studentsResponse.json();
     // Filter out users who are not students (if necessary)
     const studentEnrollments = students.filter(
-      (enrollment) => enrollment.type === 'StudentEnrollment'
+      (enrollment) => enrollment.type === "StudentEnrollment"
     );
 
     res.status(200).json(studentEnrollments);
   } catch (error) {
-    console.error('Error fetching students:', error);
+    console.error("Error fetching students:", error);
     res
       .status(500)
-      .json({ error: 'Failed to fetch students', details: error.message });
+      .json({ error: "Failed to fetch students", details: error.message });
   }
 });
 
