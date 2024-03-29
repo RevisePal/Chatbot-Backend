@@ -30,15 +30,12 @@ app.post("/ask", async (req, res) => {
       model: "gpt-3.5-turbo",
       messages: conversations,
     });
-    console.log("OpenAI API response:", response);
+    // console.log("OpenAI API response:", response);
 
-    if (response.data) {
-      console.log("OpenAI API response data:", response.data);
-    } else {
-      console.log("OpenAI API response did not contain data.");
-    }
-
+    // Instead of checking response.data, directly access the content
     const completion = response.choices[0].message.content;
+    // console.log("Completion:", completion); // This will log the actual content
+
     const filteredCompletion = filter.clean(completion);
     return res.status(200).json({
       success: true,
