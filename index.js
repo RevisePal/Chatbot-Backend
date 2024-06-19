@@ -238,4 +238,43 @@ app.all("/students", async (req, res) => {
   }
 });
 
+app.post("/question-generator", async (req, res) => {
+  console.log("Received request body:", req.body);
+  const { prompt } = req.body;  // Client should send a 'prompt' in the request body
+
+  if (!prompt) {
+    return res.status(400).json({
+      success: false,
+      message: "No prompt provided"
+    });
+  }
+
+  try {
+    // Using the OpenAI SDK to create a completion with the GPT-4 model
+    const response = await openai.Completion.create({
+      model: "gpt-4",  // Specify the GPT-4 model
+      prompt: prompt,
+      max_tokens: 150,
+      temperature: 0.7,
+      top_p: 1,
+      frequency_penalty: 0,
+      presence_penalty: 0
+    });
+
+    const completion = response.choices[0].text;
+    const filteredCompletion = filter.clean(completion);
+
+    return res.status(200).json({
+      success: true,
+      message: filteredCompletion
+    });
+  } catch (error) {
+    console.error("Error in /question-generator route:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: "An error occurred while processing your request."
+    });
+  }
+});
+
 app.listen(port, () => console.log(`Server is running on port ${port}!!`));
