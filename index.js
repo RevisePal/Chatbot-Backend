@@ -8,6 +8,7 @@ import fetch from "node-fetch";
 
 const app = express();
 app.use(express.json());
+console.log("JSON parsing middleware set up.");
 app.use(cors());
 
 const openai = new OpenAI({
@@ -239,40 +240,34 @@ app.all("/students", async (req, res) => {
 });
 
 app.post("/question-generator", async (req, res) => {
-  console.log("Received request body:", req.body);
-  const { prompt } = req.body;  // Client should send a 'prompt' in the request body
-
+  console.log("Entered /question-generator endpoint");
+  const { prompt } = req.body;
   if (!prompt) {
-    return res.status(400).json({
-      success: false,
-      message: "No prompt provided"
-    });
+    console.log("No prompt provided in request body.");
+    return res
+      .status(400)
+      .json({ success: false, message: "No prompt provided" });
   }
-
   try {
-    // Using the OpenAI SDK to create a completion with the GPT-4 model
-    const response = await openai.Completion.create({
-      model: "gpt-4",  // Specify the GPT-4 model
-      prompt: prompt,
-      max_tokens: 150,
-      temperature: 0.7,
-      top_p: 1,
-      frequency_penalty: 0,
-      presence_penalty: 0
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o", // Assuming you want to use GPT-4; adjust as necessary
+      messages: [{ role: "user", content: prompt }],
     });
-
-    const completion = response.choices[0].text;
-    const filteredCompletion = filter.clean(completion);
-
-    return res.status(200).json({
-      success: true,
-      message: filteredCompletion
-    });
+    console.log("OpenAI API response:", response);
+    const message = response.choices[0].message.content; // Adjust according to actual response structure
+    console.log("Generated message:", message);
+    return res.status(200).json({ success: true, message: message });
   } catch (error) {
-    console.error("Error in /question-generator route:", error.message);
+    console.error("Error in /question-generator route:", error);
+    if (error.response) {
+      console.error("OpenAI API error response:", error.response);
+    }
+    if (error.stack) {
+      console.error("Error stack:", error.stack);
+    }
     return res.status(500).json({
       success: false,
-      message: "An error occurred while processing your request."
+      message: "An error occurred while processing your request.",
     });
   }
 });
