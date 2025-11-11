@@ -7,9 +7,17 @@ import BadWords from "bad-words";
 import fetch from "node-fetch";
 
 const app = express();
+
+// CORS configuration - MUST come before other middleware
+app.use(cors({
+  origin: '*', // Allow all origins for now - restrict this in production
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
+
 app.use(express.json());
 console.log("JSON parsing middleware set up.");
-app.use(cors());
 
 const openai = new OpenAI({
   apiKey: process.env["OPENAI_API_KEY"],
@@ -31,13 +39,10 @@ app.post("/ask", async (req, res) => {
       model: "gpt-4o",
       messages: conversations,
     });
-    // console.log("OpenAI API response:", response);
 
-    // Instead of checking response.data, directly access the content
     const completion = response.choices[0].message.content;
-    // console.log("Completion:", completion); // This will log the actual content
-
     const filteredCompletion = filter.clean(completion);
+    
     return res.status(200).json({
       success: true,
       message: filteredCompletion,
@@ -65,9 +70,10 @@ app.post("/checkAnswer", async (req, res) => {
       throw new Error("Uh oh, no prompt was provided");
     }
 
+    // Fixed: was referencing undefined 'conversations' variable
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
-      messages: conversations,
+      messages: [{ role: "user", content: prompt }],
     });
 
     const completion = response.choices[0].message.content;
@@ -78,7 +84,11 @@ app.post("/checkAnswer", async (req, res) => {
       message: filteredCompletion,
     });
   } catch (error) {
-    console.log(error.message);
+    console.error("Error in /checkAnswer route:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: "An error occurred while processing your request.",
+    });
   }
 });
 
@@ -108,10 +118,8 @@ app.post("/canvasProxy", async (req, res) => {
 });
 
 app.all("/sections", async (req, res) => {
-  // Expect the API key and course ID to be provided in the request body or query parameters
   const { apiKey, classCode } = req.method === "POST" ? req.body : req.query;
 
-  // Validate the input
   if (!apiKey || !classCode) {
     return res.status(400).json({ error: "Missing required parameters" });
   }
@@ -125,7 +133,6 @@ app.all("/sections", async (req, res) => {
     });
 
     if (!canvasResponse.ok) {
-      // If the Canvas API request fails, capture the response for debugging
       const errorResponse = await canvasResponse.text();
       throw new Error(`Canvas API request failed: ${errorResponse}`);
     }
@@ -141,15 +148,12 @@ app.all("/sections", async (req, res) => {
 });
 
 app.post("/announcements", async (req, res) => {
-  // Extract the announcement details and credentials from the request body
   const { courseId, title, message, apiKey } = req.body;
 
-  // Check if all required parameters are provided
   if (!courseId || !title || !message || !apiKey) {
     return res.status(400).json({ error: "Missing required parameters" });
   }
 
-  // Construct the API URL for Canvas using the provided courseId
   const canvasUrl = `https://canvas.instructure.com/api/v1/courses/${courseId}/discussion_topics`;
 
   try {
@@ -167,12 +171,10 @@ app.post("/announcements", async (req, res) => {
     });
 
     if (!canvasResponse.ok) {
-      // If the Canvas API request fails, capture the response for debugging
       const errorResponse = await canvasResponse.text();
       throw new Error(`Canvas API request failed: ${errorResponse}`);
     }
 
-    // Respond to the client that the announcement was successful
     res.status(200).json({ message: "Announcement created" });
   } catch (error) {
     console.error("Error creating announcement:", error);
@@ -184,11 +186,9 @@ app.post("/announcements", async (req, res) => {
 });
 
 app.all("/students", async (req, res) => {
-  // Expect the API key and course ID to be provided in the request body or query parameters
   const { apiKey, courseId, sectionName } =
     req.method === "POST" ? req.body : req.query;
 
-  // Validate the input
   if (!apiKey || !courseId || !sectionName) {
     return res.status(400).json({ error: "Missing required parameters" });
   }
@@ -196,7 +196,6 @@ app.all("/students", async (req, res) => {
   const canvasDomain = "https://canvas.instructure.com";
 
   try {
-    // Get all sections in the course
     const sectionsUrl = `${canvasDomain}/api/v1/courses/${courseId}/sections`;
     const sectionsResponse = await fetch(sectionsUrl, {
       headers: { Authorization: `Bearer ${apiKey}` },
@@ -207,14 +206,12 @@ app.all("/students", async (req, res) => {
     }
 
     const sections = await sectionsResponse.json();
-    // Find the section that matches the sectionName
     const section = sections.find((s) => s.name === sectionName);
 
     if (!section) {
       return res.status(404).json({ error: "Section not found" });
     }
 
-    // Get the students in that section
     const studentsUrl = `${canvasDomain}/api/v1/sections/${section.id}/enrollments?enrollment_type=student&per_page=100`;
     const studentsResponse = await fetch(studentsUrl, {
       headers: { Authorization: `Bearer ${apiKey}` },
@@ -225,7 +222,6 @@ app.all("/students", async (req, res) => {
     }
 
     const students = await studentsResponse.json();
-    // Filter out users who are not students (if necessary)
     const studentEnrollments = students.filter(
       (enrollment) => enrollment.type === "StudentEnrollment"
     );
@@ -242,20 +238,24 @@ app.all("/students", async (req, res) => {
 app.post("/question-generator", async (req, res) => {
   console.log("Entered /question-generator endpoint");
   const { prompt } = req.body;
+  
   if (!prompt) {
     console.log("No prompt provided in request body.");
     return res
       .status(400)
       .json({ success: false, message: "No prompt provided" });
   }
+  
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o", // Assuming you want to use GPT-4; adjust as necessary
+      model: "gpt-4o",
       messages: [{ role: "user", content: prompt }],
     });
+    
     console.log("OpenAI API response:", response);
-    const message = response.choices[0].message.content; // Adjust according to actual response structure
+    const message = response.choices[0].message.content;
     console.log("Generated message:", message);
+    
     return res.status(200).json({ success: true, message: message });
   } catch (error) {
     console.error("Error in /question-generator route:", error);
