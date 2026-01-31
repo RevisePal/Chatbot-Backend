@@ -8,13 +8,28 @@ import fetch from "node-fetch";
 
 const app = express();
 
-// CORS configuration - MUST come before other middleware
-app.use(cors({
-  origin: '*', // Allow all origins for now - restrict this in production
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
-}));
+// Explicit CORS configuration to support local dev and deployed frontend
+const allowedOrigins = [
+  "http://localhost:4173",
+  process.env.FRONTEND_ORIGIN || ""
+].filter(Boolean);
+
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow non-browser tools (no origin) and allowed origins
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error("Not allowed by CORS"));
+  },
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: false
+};
+
+app.use(cors(corsOptions));
+// Ensure preflight requests are handled
+app.options("*", cors(corsOptions));
 
 app.use(express.json());
 console.log("JSON parsing middleware set up.");
@@ -36,7 +51,7 @@ app.post("/ask", async (req, res) => {
       throw new Error("No conversation history was provided");
     }
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-5.2",
       messages: conversations,
     });
 
@@ -72,7 +87,7 @@ app.post("/checkAnswer", async (req, res) => {
 
     // Fixed: was referencing undefined 'conversations' variable
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-5.2",
       messages: [{ role: "user", content: prompt }],
     });
 
@@ -248,7 +263,7 @@ app.post("/question-generator", async (req, res) => {
   
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-5.2",
       messages: [{ role: "user", content: prompt }],
     });
     
