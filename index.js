@@ -11,6 +11,7 @@ const app = express();
 // Explicit CORS configuration to support local dev and deployed frontend
 const allowedOrigins = [
   "http://localhost:4173",
+  "https://app.revisepal.com",
   process.env.FRONTEND_ORIGIN || ""
 ].filter(Boolean);
 
