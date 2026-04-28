@@ -10,8 +10,10 @@ const app = express();
 
 // Explicit CORS configuration to support local dev and deployed frontend
 const allowedOrigins = [
+  "http://localhost:5173",
   "http://localhost:4173",
   "https://app.revisepal.com",
+  "https://ai.revisepal.com",
   process.env.FRONTEND_ORIGIN || ""
 ].filter(Boolean);
 
@@ -42,7 +44,7 @@ const filter = new BadWords();
 
 const port = process.env.PORT || 5000;
 
-app.get("/test", (req, res) => res.send("OK"));
+app.get("/test", (_req, res) => res.send("OK"));
 
 app.post("/ask", async (req, res) => {
   console.log("Received request body:", req.body);
@@ -52,7 +54,7 @@ app.post("/ask", async (req, res) => {
       throw new Error("No conversation history was provided");
     }
     const response = await openai.chat.completions.create({
-      model: "gpt-5.2",
+      model: "gpt-5.5",
       messages: conversations,
     });
 
@@ -88,7 +90,7 @@ app.post("/checkAnswer", async (req, res) => {
 
     // Fixed: was referencing undefined 'conversations' variable
     const response = await openai.chat.completions.create({
-      model: "gpt-5.2",
+      model: "gpt-5.5",
       messages: [{ role: "user", content: prompt }],
     });
 
@@ -264,7 +266,7 @@ app.post("/question-generator", async (req, res) => {
   
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-5.2",
+      model: "gpt-5.5",
       messages: [{ role: "user", content: prompt }],
     });
     
