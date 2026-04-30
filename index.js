@@ -54,7 +54,7 @@ app.post("/ask", async (req, res) => {
       throw new Error("No conversation history was provided");
     }
     const response = await openai.chat.completions.create({
-      model: "gpt-5.5",
+      model: "gpt-4o-mini",
       messages: conversations,
     });
 
@@ -90,7 +90,7 @@ app.post("/checkAnswer", async (req, res) => {
 
     // Fixed: was referencing undefined 'conversations' variable
     const response = await openai.chat.completions.create({
-      model: "gpt-5.5",
+      model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
     });
 
@@ -266,7 +266,7 @@ app.post("/question-generator", async (req, res) => {
   
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-5.5",
+      model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
     });
     
