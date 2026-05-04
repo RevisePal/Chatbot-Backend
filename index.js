@@ -5,6 +5,35 @@ import OpenAI from "openai";
 import cors from "cors";
 import BadWords from "bad-words";
 import fetch from "node-fetch";
+import admin from "firebase-admin";
+
+if (!admin.apps.length) {
+  const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON
+    ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)
+    : undefined;
+  admin.initializeApp(
+    serviceAccount
+      ? { credential: admin.credential.cert(serviceAccount) }
+      : { credential: admin.credential.applicationDefault() }
+  );
+}
+
+const authMiddleware = async (req, res, next) => {
+  const authHeader = req.headers["authorization"];
+  if (!authHeader) {
+    if (process.env.ENFORCE_AUTH === "true") {
+      return res.status(401).json({ success: false, message: "Authentication required" });
+    }
+    return next();
+  }
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader;
+  try {
+    await admin.auth().verifyIdToken(token);
+    next();
+  } catch {
+    return res.status(401).json({ success: false, message: "Invalid authentication token" });
+  }
+};
 
 const app = express();
 
@@ -46,7 +75,7 @@ const port = process.env.PORT || 5000;
 
 app.get("/test", (_req, res) => res.send("OK"));
 
-app.post("/ask", async (req, res) => {
+app.post("/ask", authMiddleware, async (req, res) => {
   console.log("Received request body:", req.body);
   const conversations = req.body.conversations;
   try {
@@ -80,7 +109,7 @@ app.post("/ask", async (req, res) => {
   }
 });
 
-app.post("/checkAnswer", async (req, res) => {
+app.post("/checkAnswer", authMiddleware, async (req, res) => {
   const prompt = req.body.prompt;
 
   try {
