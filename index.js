@@ -14,7 +14,7 @@ if (!admin.apps.length) {
   admin.initializeApp(
     serviceAccount
       ? { credential: admin.credential.cert(serviceAccount) }
-      : { projectId: process.env.FIREBASE_PROJECT_ID || 'cloudpass-f5536' }
+      : { credential: admin.credential.applicationDefault() }
   );
 }
 
