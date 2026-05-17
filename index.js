@@ -295,7 +295,7 @@ app.post("/question-generator", async (req, res) => {
   
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-5.5",
+      model: "gpt-4.1-mini",
       messages: [{ role: "user", content: prompt }],
     });
 
