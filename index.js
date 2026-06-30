@@ -83,13 +83,13 @@ app.post("/ask", authMiddleware, async (req, res) => {
       throw new Error("No conversation history was provided");
     }
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-5-mini",
       messages: conversations,
     });
 
     const completion = response.choices[0].message.content;
     const filteredCompletion = filter.clean(completion);
-    
+
     return res.status(200).json({
       success: true,
       message: filteredCompletion,
@@ -102,36 +102,6 @@ app.post("/ask", authMiddleware, async (req, res) => {
     if (error.stack) {
       console.error("Error stack:", error.stack);
     }
-    return res.status(500).json({
-      success: false,
-      message: "An error occurred while processing your request.",
-    });
-  }
-});
-
-app.post("/checkAnswer", authMiddleware, async (req, res) => {
-  const prompt = req.body.prompt;
-
-  try {
-    if (prompt == null) {
-      throw new Error("Uh oh, no prompt was provided");
-    }
-
-    // Fixed: was referencing undefined 'conversations' variable
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    const completion = response.choices[0].message.content;
-    const filteredCompletion = filter.clean(completion);
-
-    return res.status(200).json({
-      success: true,
-      message: filteredCompletion,
-    });
-  } catch (error) {
-    console.error("Error in /checkAnswer route:", error.message);
     return res.status(500).json({
       success: false,
       message: "An error occurred while processing your request.",
@@ -295,7 +265,7 @@ app.post("/question-generator", async (req, res) => {
   
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4.1-mini",
+      model: "gpt-5-mini",
       messages: [{ role: "user", content: prompt }],
     });
 
