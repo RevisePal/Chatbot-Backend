@@ -115,11 +115,14 @@ app.post("/checkGTP", authMiddleware, async (req, res) => {
     if (!conversations || conversations.length === 0) {
       throw new Error("No conversation history was provided");
     }
+    console.log("[checkGTP] Prompt sent to OpenAI:");
+    conversations.forEach(m => console.log(`  [${m.role}] ${m.content}`));
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: conversations,
     });
     const completion = response.choices[0].message.content;
+    console.log("[checkGTP] OpenAI response:", completion);
     return res.status(200).json({
       success: true,
       message: completion,
