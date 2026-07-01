@@ -83,7 +83,7 @@ app.post("/ask", authMiddleware, async (req, res) => {
       throw new Error("No conversation history was provided");
     }
     const response = await openai.chat.completions.create({
-      model: "gpt-5-mini",
+      model: "gpt-4o-mini",
       messages: conversations,
     });
 
