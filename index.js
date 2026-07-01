@@ -109,6 +109,30 @@ app.post("/ask", authMiddleware, async (req, res) => {
   }
 });
 
+app.post("/checkGTP", authMiddleware, async (req, res) => {
+  const conversations = req.body.conversations;
+  try {
+    if (!conversations || conversations.length === 0) {
+      throw new Error("No conversation history was provided");
+    }
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: conversations,
+    });
+    const completion = response.choices[0].message.content;
+    return res.status(200).json({
+      success: true,
+      message: completion,
+    });
+  } catch (error) {
+    console.error("Error in /checkGTP route:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: "An error occurred while processing your request.",
+    });
+  }
+});
+
 app.post("/canvasProxy", async (req, res) => {
   const { apiKey, classCode } = req.body;
 
