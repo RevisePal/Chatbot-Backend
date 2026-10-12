@@ -6,6 +6,7 @@ import cors from "cors";
 import BadWords from "bad-words";
 import fetch from "node-fetch";
 import admin from "firebase-admin";
+import crypto from "crypto";
 
 if (!admin.apps.length) {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON
@@ -41,6 +42,7 @@ const app = express();
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:4173",
+  "http://localhost:3000",
   "https://app.revisepal.com",
   "https://ai.revisepal.com",
   process.env.FRONTEND_ORIGIN || ""
@@ -109,20 +111,142 @@ app.post("/ask", authMiddleware, async (req, res) => {
   }
 });
 
+// --- answer-judgement logging -------------------------------------------------
+// Judgements are written here rather than from the app so the verdict cannot be
+// forged by a client, and so one judgement is one write no matter how many
+// clients produced it. Deliberately stores no uid: the eval set needs the
+// question and the answer text, not who typed it.
+const VALID_REASONS = new Set([
+  "exact",
+  "spelling",
+  "synonym",
+  "equivalent_concept",
+  "wrong_concept",
+  "too_vague",
+]);
+
+// Deliberately conservative: case and whitespace only. This string is part of
+// the document key, so under-normalising just splits two records that could
+// have been one, while over-normalising would merge answers that are not the
+// same answer - "H" and "H\u207A", or "11x - 5y" and "11x 5y" - and hand one of
+// them the other's verdict once these records are read as a cache.
+function normaliseAnswer(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Keyed on the rubric version too, so a judgement made by an older rubric is
+// never merged into - or later served from - a newer one's record.
+function judgementId(questionId, normalisedAnswer, promptVersion) {
+  return crypto
+    .createHash("sha1")
+    .update(`${questionId}|${normalisedAnswer}|${promptVersion}`)
+    .digest("hex");
+}
+
+function parseJudgement(completion) {
+  try {
+    const parsed = JSON.parse(completion);
+    const verdict = String(parsed.verdict || "").trim().toLowerCase();
+    if (verdict !== "accept" && verdict !== "reject") return null;
+    const reason = String(parsed.reason || "").trim().toLowerCase();
+    const confidence = Number(parsed.confidence);
+    return {
+      verdict,
+      reason: VALID_REASONS.has(reason) ? reason : null,
+      confidence: Number.isFinite(confidence)
+        ? Math.min(1, Math.max(0, confidence))
+        : null,
+      canonical: String(parsed.canonical || "").trim().slice(0, 200),
+      requires: String(parsed.requires || "").trim().slice(0, 300),
+      feedback: String(parsed.feedback || "").trim().slice(0, 300),
+    };
+  } catch {
+    return null;
+  }
+}
+
+// One document per (question, normalised answer, rubric), with a counter. A
+// popular typo costs one document rather than one per attempt, which keeps this
+// inside Firestore quota, and leaves a record shaped to be read as a cache
+// later. Never throws: a logging failure must not fail the marking request.
+async function recordJudgement(meta, judgement, model) {
+  if (!meta || !meta.questionId || !judgement) return;
+  try {
+    const promptVersion = String(meta.promptVersion || "unknown");
+    const normalised = normaliseAnswer(meta.studentAnswer);
+    const id = judgementId(meta.questionId, normalised, promptVersion);
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    await admin
+      .firestore()
+      .collection("answer_judgements")
+      .doc(id)
+      .set(
+        {
+          questionId: meta.questionId,
+          questionType: meta.questionType ?? null,
+          topicId: meta.topicId ?? null,
+          normalisedAnswer: normalised,
+          studentAnswer: String(meta.studentAnswer || "").slice(0, 500),
+          verdict: judgement.verdict,
+          reason: judgement.reason,
+          confidence: judgement.confidence,
+          canonical: judgement.canonical,
+          requires: judgement.requires,
+          feedback: judgement.feedback,
+          promptVersion,
+          model,
+          count: admin.firestore.FieldValue.increment(1),
+          firstSeenAt: now,
+          lastSeenAt: now,
+        },
+        { merge: true }
+      );
+  } catch (error) {
+    console.error("[checkGTP] failed to record judgement:", error.message);
+  }
+}
+
+const MARKER_MODEL = "gpt-4o-mini";
+
 app.post("/checkGTP", authMiddleware, async (req, res) => {
   const conversations = req.body.conversations;
+  // Only clients that ask for json get json. Builds already on phones send
+  // neither `format` nor `meta` and parse the reply with startsWith("yes"), so
+  // switching them to a json reply would mark every answer wrong. Their path
+  // through this route has to stay byte-for-byte what it was.
+  const wantsJson = req.body.format === "json";
+  const meta = req.body.meta;
   try {
     if (!conversations || conversations.length === 0) {
       throw new Error("No conversation history was provided");
     }
     console.log("[checkGTP] Prompt sent to OpenAI:");
-    conversations.forEach(m => console.log(`  [${m.role}] ${m.content}`));
+    conversations.forEach(m => {
+      const content = Array.isArray(m.content) ? JSON.stringify(m.content) : m.content;
+      console.log(`  [${m.role}] ${content}`);
+    });
+    // Marking must be deterministic: the same student answer has to get the
+    // same verdict on every attempt, and for every student.
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: MARKER_MODEL,
       messages: conversations,
+      temperature: 0,
+      max_tokens: 200,
+      ...(wantsJson ? { response_format: { type: "json_object" } } : {}),
     });
     const completion = response.choices[0].message.content;
     console.log("[checkGTP] OpenAI response:", completion);
+
+    if (wantsJson) {
+      const judgement = parseJudgement(completion);
+      // Logging is awaited so a cold Railway instance cannot be torn down
+      // mid-write, but it can never fail the response.
+      await recordJudgement(meta, judgement, MARKER_MODEL);
+    }
+
     return res.status(200).json({
       success: true,
       message: completion,
