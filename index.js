@@ -168,6 +168,13 @@ function parseJudgement(completion) {
   }
 }
 
+// Set JUDGEMENTS_COLLECTION to write somewhere other than the live collection -
+// e.g. "answer_judgements_test" while a TestFlight build is the only thing
+// sending `format: "json"`, so trial data never lands among real judgements.
+// Unset, judgements go to the live collection.
+const JUDGEMENTS_COLLECTION =
+  process.env.JUDGEMENTS_COLLECTION || "answer_judgements";
+
 // One document per (question, normalised answer, rubric), with a counter. A
 // popular typo costs one document rather than one per attempt, which keeps this
 // inside Firestore quota, and leaves a record shaped to be read as a cache
@@ -181,7 +188,7 @@ async function recordJudgement(meta, judgement, model) {
     const now = admin.firestore.FieldValue.serverTimestamp();
     await admin
       .firestore()
-      .collection("answer_judgements")
+      .collection(JUDGEMENTS_COLLECTION)
       .doc(id)
       .set(
         {
@@ -440,4 +447,8 @@ app.post("/question-generator", async (req, res) => {
   }
 });
 
-app.listen(port, () => console.log(`Server is running on port ${port}!!`));
+app.listen(port, () =>
+  console.log(
+    `Server is running on port ${port}!! (judgements -> ${JUDGEMENTS_COLLECTION})`
+  )
+);
