@@ -117,13 +117,19 @@ app.post("/ask", authMiddleware, async (req, res) => {
 // clients produced it. Deliberately stores no uid: the eval set needs the
 // question and the answer text, not who typed it.
 const VALID_REASONS = new Set([
-  "exact",
   "spelling",
   "synonym",
+  "verbose",
   "equivalent_concept",
   "wrong_concept",
   "too_vague",
 ]);
+
+// "exact" cannot be true: the marker is only called once a local exact match has
+// already failed. Builds distributed before the rubric dropped it still offer it
+// to the model, so keep the raw value for the record and leave `reason` null
+// rather than trusting a label we know is wrong.
+const IMPOSSIBLE_REASONS = new Set(["exact"]);
 
 // Deliberately conservative: case and whitespace only. This string is part of
 // the document key, so under-normalising just splits two records that could
@@ -156,6 +162,14 @@ function parseJudgement(completion) {
     return {
       verdict,
       reason: VALID_REASONS.has(reason) ? reason : null,
+      // What the model actually said, kept whenever it is not a value we
+      // accepted, so a mislabel is visible in the data instead of silently
+      // becoming null.
+      reasonRaw:
+        reason && !VALID_REASONS.has(reason)
+          ? reason.slice(0, 40)
+          : null,
+      reasonImpossible: IMPOSSIBLE_REASONS.has(reason),
       confidence: Number.isFinite(confidence)
         ? Math.min(1, Math.max(0, confidence))
         : null,
@@ -199,6 +213,8 @@ async function recordJudgement(meta, judgement, model) {
           studentAnswer: String(meta.studentAnswer || "").slice(0, 500),
           verdict: judgement.verdict,
           reason: judgement.reason,
+          reasonRaw: judgement.reasonRaw,
+          reasonImpossible: judgement.reasonImpossible,
           confidence: judgement.confidence,
           canonical: judgement.canonical,
           requires: judgement.requires,
@@ -216,6 +232,25 @@ async function recordJudgement(meta, judgement, model) {
   }
 }
 
+// Railway splits log output on newlines and does not guarantee their order, so
+// a multi-line prompt came out shuffled and unreadable. Everything below is
+// logged as exactly one line per request. The rubric itself is not logged: it is
+// identical on every call and identified by promptVersion, so printing it just
+// pushed the diagnostic lines out of retention. Set DEBUG_PROMPTS=true to get
+// the full conversation back when a prompt change needs inspecting.
+function summariseUserTurn(conversations) {
+  const turn = conversations[conversations.length - 1];
+  const content = turn?.content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  const text = content
+    .filter(part => part?.type === "text")
+    .map(part => part.text)
+    .join(" ");
+  const images = content.filter(part => part?.type === "image_url").length;
+  return images > 0 ? `${text} [+${images} image(s)]` : text;
+}
+
 const MARKER_MODEL = "gpt-4o-mini";
 
 app.post("/checkGTP", authMiddleware, async (req, res) => {
@@ -230,11 +265,14 @@ app.post("/checkGTP", authMiddleware, async (req, res) => {
     if (!conversations || conversations.length === 0) {
       throw new Error("No conversation history was provided");
     }
-    console.log("[checkGTP] Prompt sent to OpenAI:");
-    conversations.forEach(m => {
-      const content = Array.isArray(m.content) ? JSON.stringify(m.content) : m.content;
-      console.log(`  [${m.role}] ${content}`);
-    });
+    console.log(
+      `[checkGTP] ask q=${meta?.questionId || "-"} v=${
+        meta?.promptVersion || "legacy"
+      } ${JSON.stringify(summariseUserTurn(conversations))}`
+    );
+    if (process.env.DEBUG_PROMPTS === "true") {
+      console.log(`[checkGTP] full=${JSON.stringify(conversations)}`);
+    }
     // Marking must be deterministic: the same student answer has to get the
     // same verdict on every attempt, and for every student.
     const response = await openai.chat.completions.create({
@@ -245,7 +283,9 @@ app.post("/checkGTP", authMiddleware, async (req, res) => {
       ...(wantsJson ? { response_format: { type: "json_object" } } : {}),
     });
     const completion = response.choices[0].message.content;
-    console.log("[checkGTP] OpenAI response:", completion);
+    console.log(
+      `[checkGTP] got q=${meta?.questionId || "-"} ${JSON.stringify(completion)}`
+    );
 
     if (wantsJson) {
       const judgement = parseJudgement(completion);
