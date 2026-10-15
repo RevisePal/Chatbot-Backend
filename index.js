@@ -341,6 +341,75 @@ function overRateLimit(key) {
   return hits.length > RATE_LIMIT_PER_MIN;
 }
 
+// --- legacy answer sanitising ------------------------------------------------
+// Builds before the rubric gained <student_answer> tags interpolate the typed
+// answer straight into a newline-delimited template:
+//
+//   Question: ...
+//   Correct answer(s): 1 5
+//   Student's answer: 5
+//    1
+//   Is the student's answer correct or an acceptable equivalent?
+//
+// A newline in the answer therefore breaks the template's own line structure,
+// and the model ends up judging a malformed prompt - that exact input was
+// marked wrong while "5 1" was marked right. Collapsing whitespace inside the
+// answer span cannot change what the student actually wrote, so a wrong answer
+// stays wrong; it just stops the structure being the thing that decides. It
+// also removes these builds' ability to forge a field boundary by typing
+// "Correct answer(s): ..." on a line of its own.
+//
+// Rewrites only when the template is matched unambiguously, and leaves the
+// request untouched otherwise. Newer builds delimit the answer already and are
+// never passed through here.
+const LEGACY_ANSWER_START = "\nStudent's answer: ";
+const LEGACY_ANSWER_END =
+  "\nIs the student's answer correct or an acceptable equivalent?";
+
+function sanitiseLegacyAnswerText(text) {
+  if (typeof text !== "string") return null;
+  const startIdx = text.indexOf(LEGACY_ANSWER_START);
+  const endIdx = text.indexOf(LEGACY_ANSWER_END);
+  if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) return null;
+  // Exactly one of each marker, or we cannot be sure which span is the answer.
+  if (
+    text.indexOf(LEGACY_ANSWER_START, startIdx + 1) !== -1 ||
+    text.indexOf(LEGACY_ANSWER_END, endIdx + 1) !== -1
+  ) {
+    return null;
+  }
+  const from = startIdx + LEGACY_ANSWER_START.length;
+  const answer = text.slice(from, endIdx);
+  const cleaned = answer.replace(/\s+/g, " ").trim();
+  if (cleaned === answer) return null;
+  return text.slice(0, from) + cleaned + text.slice(endIdx);
+}
+
+// Returns the conversation unchanged unless an answer span was actually
+// rewritten, so the caller can tell whether anything happened.
+function sanitiseLegacyConversations(conversations) {
+  let changed = false;
+  const next = conversations.map(m => {
+    if (m?.role !== "user") return m;
+    if (typeof m.content === "string") {
+      const fixed = sanitiseLegacyAnswerText(m.content);
+      if (fixed === null) return m;
+      changed = true;
+      return { ...m, content: fixed };
+    }
+    if (!Array.isArray(m.content)) return m;
+    const parts = m.content.map(part => {
+      if (part?.type !== "text") return part;
+      const fixed = sanitiseLegacyAnswerText(part.text);
+      if (fixed === null) return part;
+      changed = true;
+      return { ...part, text: fixed };
+    });
+    return changed ? { ...m, content: parts } : m;
+  });
+  return changed ? next : null;
+}
+
 // --- emergency rubric override ----------------------------------------------
 // A frozen copy of the rubric known to mark correctly. Setting RUBRIC_OVERRIDE
 // =on makes the server ignore the rubric the app sent and use this instead, so
@@ -467,9 +536,19 @@ app.post("/checkGTP", authMiddleware, async (req, res) => {
       }
     }
 
+    let messages = conversations;
+
+    // Legacy builds only: newer ones delimit the answer and need nothing here.
+    if (!wantsJson) {
+      const sanitised = sanitiseLegacyConversations(messages);
+      if (sanitised) {
+        messages = sanitised;
+        console.log(`[checkGTP] sanitised whitespace in a legacy answer`);
+      }
+    }
+
     // Emergency rollback: ignore the rubric the app sent. Only for json-shape
     // callers, since legacy builds expect a bare yes/no.
-    let messages = conversations;
     let effectiveVersion = meta?.promptVersion || rubric.version || "legacy";
     if (process.env.RUBRIC_OVERRIDE === "on" && wantsJson) {
       messages = conversations.map(m =>
