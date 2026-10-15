@@ -126,6 +126,25 @@ const VALID_REASONS = new Set([
   "too_vague",
 ]);
 
+// Each reason implies a verdict, per the rubric. A judgement that pairs them
+// the other way round is the model contradicting itself: the verdict the
+// student already saw stands, but the judgement is flagged so these do not sit
+// in the eval set looking like sound data.
+const ACCEPT_REASONS = new Set([
+  "spelling",
+  "synonym",
+  "verbose",
+  "equivalent_concept",
+]);
+const REJECT_REASONS = new Set(["wrong_concept", "too_vague"]);
+
+function reasonConflictsWithVerdict(verdict, reason) {
+  if (!reason) return false;
+  if (verdict === "accept") return REJECT_REASONS.has(reason);
+  if (verdict === "reject") return ACCEPT_REASONS.has(reason);
+  return false;
+}
+
 // "exact" cannot be true: the marker is only called once a local exact match has
 // already failed. Builds distributed before the rubric dropped it still offer it
 // to the model, so keep the raw value for the record and leave `reason` null
@@ -171,6 +190,10 @@ function parseJudgement(completion) {
           ? reason.slice(0, 40)
           : null,
       reasonImpossible: IMPOSSIBLE_REASONS.has(reason),
+      reasonConflict: reasonConflictsWithVerdict(
+        verdict,
+        VALID_REASONS.has(reason) ? reason : null
+      ),
       confidence: Number.isFinite(confidence)
         ? Math.min(1, Math.max(0, confidence))
         : null,
@@ -216,6 +239,7 @@ async function recordJudgement(meta, judgement, model) {
           reason: judgement.reason,
           reasonRaw: judgement.reasonRaw,
           reasonImpossible: judgement.reasonImpossible,
+          reasonConflict: judgement.reasonConflict,
           confidence: judgement.confidence,
           canonical: judgement.canonical,
           requires: judgement.requires,
@@ -258,6 +282,10 @@ const KNOWN_RUBRICS = new Map([
   [
     "cd878977760eea7019a99b83081a6a5a906412383928b128d43bc3c95507218b",
     "v4-word-forms",
+  ],
+  [
+    "9e0c38447601dfc64a46f19df3e016ed324d3c5f42ab03479b5f034850d6cdc9",
+    "v5-word-forms-canonical",
   ],
 ]);
 
@@ -475,6 +503,15 @@ app.post("/checkGTP", authMiddleware, async (req, res) => {
 
     if (wantsJson) {
       const judgement = parseJudgement(completion);
+      if (judgement?.reasonConflict || judgement?.reasonImpossible) {
+        console.warn(
+          `[checkGTP] self-contradictory judgement q=${
+            meta?.questionId || "-"
+          } verdict=${judgement.verdict} reason=${
+            judgement.reason || judgement.reasonRaw
+          }`
+        );
+      }
       // Recorded against the rubric that actually produced the verdict, not
       // whatever version the app claimed, so an override cannot mislabel the
       // judgement log.
