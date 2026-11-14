@@ -287,6 +287,10 @@ const KNOWN_RUBRICS = new Map([
     "9e0c38447601dfc64a46f19df3e016ed324d3c5f42ab03479b5f034850d6cdc9",
     "v5-word-forms-canonical",
   ],
+  [
+    "5d9e354cd2e7bc2d6e140433627efe8992d1c7cf7763dde37cc4d487a396ecf9",
+    "v6-blanks-specific",
+  ],
 ]);
 
 // "warn" logs an unrecognised rubric and lets it through; "enforce" rejects it.
