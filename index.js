@@ -291,6 +291,10 @@ const KNOWN_RUBRICS = new Map([
     "5d9e354cd2e7bc2d6e140433627efe8992d1c7cf7763dde37cc4d487a396ecf9",
     "v6-blanks-specific",
   ],
+  [
+    "7f9ced148d446b2994511e64eae3a8f42eee5fcc6bf3f9dbcff8106b24629d5f",
+    "v9-explanation-points",
+  ],
 ]);
 
 // "warn" logs an unrecognised rubric and lets it through; "enforce" rejects it.
@@ -492,6 +496,32 @@ function summariseUserTurn(conversations) {
   return images > 0 ? `${text} [+${images} image(s)]` : text;
 }
 
+// A judgement that calls an answer "spelling" and then rejects it contradicts
+// the rubric, which says spelling is always accepted. Ten such judgements were
+// logged, every one of them a plain misspelling the model had itself resolved
+// to the right term - "membrain" with canonical "membrane", "vircule" with
+// "vacuole" - and the student was marked wrong anyway.
+//
+// Two attempts at fixing this in the rubric each introduced more false accepts
+// than they removed, measured against 200 replayed judgements. Correcting it
+// here instead is exact: it can only touch answers the model already called a
+// spelling error, so it can never reach one it called "wrong_concept". Set
+// SPELLING_FIX=off to disable without a redeploy of the app.
+function correctSpellingVerdict(completion) {
+  if (process.env.SPELLING_FIX === "off") return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(completion);
+  } catch {
+    return null;
+  }
+  const reason = String(parsed.reason || "").trim().toLowerCase();
+  const verdict = String(parsed.verdict || "").trim().toLowerCase();
+  if (reason !== "spelling" || verdict !== "reject") return null;
+  parsed.verdict = "accept";
+  return JSON.stringify(parsed);
+}
+
 const MARKER_MODEL = "gpt-4o-mini";
 
 app.post("/checkGTP", authMiddleware, async (req, res) => {
@@ -584,8 +614,16 @@ app.post("/checkGTP", authMiddleware, async (req, res) => {
       `[checkGTP] got q=${meta?.questionId || "-"} ${JSON.stringify(completion)}`
     );
 
+    let reply = completion;
     if (wantsJson) {
-      const judgement = parseJudgement(completion);
+      const corrected = correctSpellingVerdict(completion);
+      if (corrected) {
+        reply = corrected;
+        console.warn(
+          `[checkGTP] corrected reject/spelling -> accept q=${meta?.questionId || "-"}`
+        );
+      }
+      const judgement = parseJudgement(reply);
       if (judgement?.reasonConflict || judgement?.reasonImpossible) {
         console.warn(
           `[checkGTP] self-contradictory judgement q=${
@@ -607,7 +645,7 @@ app.post("/checkGTP", authMiddleware, async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: completion,
+      message: reply,
     });
   } catch (error) {
     console.error("Error in /checkGTP route:", error.message);
